@@ -95,12 +95,16 @@ static NSString *const PDBonjourServiceType = @"_ponyd._tcp";
     NSString *deviceName = device.name;
 #endif
 
+    NSString *appName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"];
+    if (![appName length]) {
+        appName = [[[NSBundle mainBundle] executablePath] lastPathComponent];
+    }
     NSMutableDictionary *parameters = [NSMutableDictionary dictionaryWithObjectsAndKeys:
         clientID, @"device_id",
         deviceName, @"device_name",
         device.localizedModel, @"device_model",
         [[NSBundle mainBundle] bundleIdentifier], @"app_id",
-        [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"], @"app_name",
+        appName, @"app_name",
         [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"], @"app_version",
         [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"], @"app_build",
         nil];
