@@ -142,6 +142,25 @@
 
 #pragma mark - Delegate Injection
 
++ (Class)classImplementingSelector:(SEL)selector onClass:(Class)class
+{
+    // Does not initialize the class
+    while (class) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(class, &count);
+        if (methods) {
+            for (unsigned int i = 0; i < count; i++) {
+                if (method_getName(methods[i]) == selector) {
+                    return class;
+                }
+            }
+            free(methods);
+        }
+        class = class_getSuperclass(class);
+    }
+    return nil;
+}
+
 + (void)injectIntoAllNSURLConnectionDelegateClasses;
 {
     // Only allow swizzling once.
@@ -162,6 +181,9 @@
 
     Class *classes = NULL;
     NSInteger numClasses = objc_getClassList(NULL, 0);
+
+    Class NSObjectClass = [NSObject class];
+    Class PDNetworkDomainControllerClass = [PDNetworkDomainController class];
     
     if (numClasses > 0) {
         classes = (__unsafe_unretained Class *)malloc(sizeof(Class) * numClasses);
@@ -173,16 +195,21 @@
                 continue;
             }
             
-            if (![class isSubclassOfClass:[NSObject class]]) {
+            BOOL skip = YES;
+            Class superclass = class_getSuperclass(class);
+            do {
+                if (superclass == PDNetworkDomainControllerClass)
+                    break;
+                if (superclass == NSObjectClass)
+                    skip = NO;
+                superclass = class_getSuperclass(superclass);
+            } while(superclass);
+            if (skip) {
                 continue;
             }
-            
-            if ([class isSubclassOfClass:[PDNetworkDomainController class]]) {
-                continue;
-            }
-            
+
             for (int selectorIndex = 0; selectorIndex < numSelectors; ++selectorIndex) {
-                if ([class instancesRespondToSelector:selectors[selectorIndex]]) {
+                if ([self classImplementingSelector:selectors[selectorIndex] onClass:class]) {
                     [self injectIntoDelegateClass:class];
                     break;
                 }
