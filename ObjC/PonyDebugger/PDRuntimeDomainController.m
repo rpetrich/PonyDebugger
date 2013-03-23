@@ -45,6 +45,7 @@
 
 @implementation PDRuntimeDomainController {
     JSGlobalContextRef context;
+    JSStringRef underscorePropertyName;
 }
 
 @dynamic domain;
@@ -92,12 +93,14 @@
 
     context = JSGlobalContextCreate(NULL);
     CydgetSetupContext(context);
+    underscorePropertyName = JSStringCreateWithUTF8CString("_");
     
     return self;
 }
 
 - (void)dealloc;
 {
+    JSStringRelease(underscorePropertyName);
     JSGlobalContextRelease(context);
     self.objectReferences = nil;
     self.objectGroups = nil;
@@ -178,6 +181,7 @@ static inline id NSObjectFromJSValue(JSContextRef context, JSValueRef value) {
         if (value) {
             NSString *result = NSObjectFromJSValue(context, value);
             callback([NSObject PD_remoteObjectRepresentationForObject:result], nil, nil);
+            JSObjectSetProperty(context, JSContextGetGlobalObject(context), underscorePropertyName, value, kJSClassAttributeNone, NULL);
             return;
         }
         if (exception) {
