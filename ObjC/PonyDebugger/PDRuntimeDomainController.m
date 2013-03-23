@@ -24,6 +24,9 @@
 #import <JavaScriptCore/JSStringRefCF.h>
 #import <JavaScriptCore/JSValueRef.h>
 
+#import <apr-1/apr_pools.h>
+#import <cycript.h>
+
 @interface PDRuntimeDomainController () <PDRuntimeCommandDelegate>
 
 // Dictionary where key is a unique objectId, and value is a reference of the value.
@@ -56,6 +59,7 @@
     static PDRuntimeDomainController *defaultInstance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        apr_initialize();
         defaultInstance = [[PDRuntimeDomainController alloc] init];
     });
     
@@ -87,6 +91,7 @@
     self.objectGroups = [[NSMutableDictionary alloc] init];
 
     context = JSGlobalContextCreate(NULL);
+    CYSetupContext(context);
     
     return self;
 }
@@ -154,7 +159,19 @@ static inline id NSObjectFromJSValue(JSContextRef context, JSValueRef value) {
 - (void)domain:(PDRuntimeDomain *)domain evaluateWithExpression:(NSString *)expression objectGroup:(NSString *)objectGroup includeCommandLineAPI:(NSNumber *)includeCommandLineAPI doNotPauseOnExceptionsAndMuteConsole:(NSNumber *)doNotPauseOnExceptionsAndMuteConsole contextId:(NSNumber *)contextId returnByValue:(NSNumber *)returnByValue callback:(void (^)(PDRuntimeRemoteObject *result, NSNumber *wasThrown, id error))callback
 {
     if (![objectGroup isEqualToString:@"completion"]) {
-        JSStringRef jsExpression = JSStringCreateWithCFString((__bridge CFStringRef)expression);
+        // Convert from Cycript to JavaScript
+        size_t length = [expression length];
+        unichar *buffer = malloc(length * sizeof(unichar));
+        [expression getCharacters:buffer range:NSMakeRange(0, length)];
+        const uint16_t *characters = buffer;
+        apr_pool_t *pool = NULL;
+        apr_pool_create(&pool, NULL);
+        CydgetPoolParse(pool, &characters, &length);
+        //JSStringRef jsExpression = JSStringCreateWithCFString((__bridge CFStringRef)expression);
+        JSStringRef jsExpression = JSStringCreateWithCharacters(characters, length);
+        free(buffer);
+        apr_pool_destroy(pool);
+
         JSValueRef exception = NULL;
         JSValueRef value = JSEvaluateScript(context, jsExpression, NULL, NULL, 0, &exception);
         JSStringRelease(jsExpression);
