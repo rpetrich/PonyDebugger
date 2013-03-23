@@ -76,21 +76,6 @@
 
 #pragma mark Delegate Injection Convenience Methods
 
-+ (SEL)swizzledSelectorForSelector:(SEL)selector;
-{
-    return NSSelectorFromString([NSString stringWithFormat:@"_pd_swizzle_%x_%@", arc4random(), NSStringFromSelector(selector)]);
-}
-
-+ (void)domainControllerSwizzleGuardForSwizzledObject:(NSObject *)object selector:(SEL)selector implementationBlock:(void (^)(void))implementationBlock;
-{
-    void *key = (__bridge void *)[[NSString alloc] initWithFormat:@"PDSelectorGuardKeyForSelector:%@", NSStringFromSelector(selector)];
-    if (!objc_getAssociatedObject(object, key)) {
-        objc_setAssociatedObject(object, key, [NSNumber numberWithBool:YES], OBJC_ASSOCIATION_ASSIGN);
-        implementationBlock();
-        objc_setAssociatedObject(object, key, nil, OBJC_ASSOCIATION_ASSIGN);
-    }
-}
-
 + (BOOL)instanceRespondsButDoesNotImplementSelector:(SEL)selector class:(Class)cls;
 {
     if ([cls instancesRespondToSelector:selector]) {
@@ -116,28 +101,24 @@
     return NO;
 }
 
-+ (void)replaceImplementationOfSelector:(SEL)selector withSelector:(SEL)swizzledSelector forClass:(Class)cls withMethodDescription:(struct objc_method_description)methodDescription implementationBlock:(id)implementationBlock undefinedBlock:(id)undefinedBlock;
++ (void *)replaceImplementationOfSelector:(SEL)selector forClass:(Class)cls withMethodDescription:(struct objc_method_description)methodDescription implementationBlock:(id)implementationBlock;
 {
     if ([self instanceRespondsButDoesNotImplementSelector:selector class:cls]) {
-        return;
+        return NULL;
+    }
+
+    if (![cls instancesRespondToSelector:selector]) {
+        return NULL;
     }
 
 #ifdef __IPHONE_6_0
-    IMP implementation = imp_implementationWithBlock((id)([cls instancesRespondToSelector:selector] ? implementationBlock : undefinedBlock));
+    IMP implementation = imp_implementationWithBlock((id)implementationBlock);
 #else
-    IMP implementation = imp_implementationWithBlock((__bridge void *)([cls instancesRespondToSelector:selector] ? implementationBlock : undefinedBlock));
+    IMP implementation = imp_implementationWithBlock((__bridge void *)implementationBlock);
 #endif
     
-    Method oldMethod = class_getInstanceMethod(cls, selector);
-    if (oldMethod) {
-        class_addMethod(cls, swizzledSelector, implementation, methodDescription.types);
-         
-        Method newMethod = class_getInstanceMethod(cls, swizzledSelector);
-        
-        method_exchangeImplementations(oldMethod, newMethod);
-    } else {
-        class_addMethod(cls, selector, implementation, methodDescription.types);
-    }
+    Method method = class_getInstanceMethod(cls, selector);
+    return method_setImplementation(method, implementation);
 }
 
 #pragma mark - Delegate Injection
@@ -190,13 +171,12 @@
         numClasses = objc_getClassList(classes, numClasses);
         for (NSInteger classIndex = 0; classIndex < numClasses; ++classIndex) {
             Class class = classes[classIndex];
-            
-            if (class_getClassMethod(class, @selector(isSubclassOfClass:)) == NULL) {
+
+            if (class == NSObjectClass)
                 continue;
-            }
-            
+
             BOOL skip = YES;
-            Class superclass = class_getSuperclass(class);
+            Class superclass = class;
             do {
                 if (superclass == PDNetworkDomainControllerClass)
                     break;
@@ -216,7 +196,8 @@
             }
         }
         
-        free(classes);
+        if (classes)
+            free(classes);
     }
 }
 
@@ -232,7 +213,6 @@
 + (void)injectWillSendRequestIntoDelegateClass:(Class)cls;
 {
     SEL selector = @selector(connection:willSendRequest:redirectResponse:);
-    SEL swizzledSelector = [self swizzledSelectorForSelector:selector];
     
     Protocol *protocol = @protocol(NSURLConnectionDataDelegate);
     if (!protocol) {
@@ -242,28 +222,20 @@
     struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, NO, YES);
     
     typedef NSURLRequest *(^NSURLConnectionWillSendRequestBlock)(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLRequest *request, NSURLResponse *response);
-    
-    NSURLConnectionWillSendRequestBlock undefinedBlock = ^NSURLRequest *(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLRequest *request, NSURLResponse *response) {
-        [self domainControllerSwizzleGuardForSwizzledObject:slf selector:selector implementationBlock:^{
-            [[PDNetworkDomainController defaultInstance] connection:connection willSendRequest:request redirectResponse:response];
-        }];
-        
-        return request;
-    };
-    
+    __block NSURLRequest *(*original)(id, SEL, NSURLConnection *, NSURLRequest *, NSURLResponse *) = NULL;
+
     NSURLConnectionWillSendRequestBlock implementationBlock = ^NSURLRequest *(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLRequest *request, NSURLResponse *response) {
-        NSURLRequest *returnValue = objc_msgSend(slf, swizzledSelector, connection, request, response);
-        undefinedBlock(slf, connection, request, response);
+        NSURLRequest *returnValue = original ? original(slf, selector, connection, request, response) : request;
+        [[PDNetworkDomainController defaultInstance] connection:connection willSendRequest:request redirectResponse:response];
         return returnValue;
     };
     
-    [self replaceImplementationOfSelector:selector withSelector:swizzledSelector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock undefinedBlock:undefinedBlock];
+    original = [self replaceImplementationOfSelector:selector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock];
 }
 
 + (void)injectDidReceiveResponseIntoDelegateClass:(Class)cls;
 {
     SEL selector = @selector(connection:didReceiveResponse:);
-    SEL swizzledSelector = [self swizzledSelectorForSelector:selector];
     
     Protocol *protocol = @protocol(NSURLConnectionDataDelegate);
     if (!protocol) {
@@ -273,25 +245,21 @@
     struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, NO, YES);
     
     typedef void (^NSURLConnectionDidReceiveResponseBlock)(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLResponse *response);
-    
-    NSURLConnectionDidReceiveResponseBlock undefinedBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLResponse *response) {
-        [self domainControllerSwizzleGuardForSwizzledObject:slf selector:selector implementationBlock:^{
-            [[PDNetworkDomainController defaultInstance] connection:connection didReceiveResponse:response];
-        }];
-    };
-    
+    __block void (*original)(id, SEL, NSURLConnection *, NSURLResponse *) = NULL;
+
     NSURLConnectionDidReceiveResponseBlock implementationBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSURLResponse *response) {
-        undefinedBlock(slf, connection, response);
-        objc_msgSend(slf, swizzledSelector, connection, response);
+        [[PDNetworkDomainController defaultInstance] connection:connection didReceiveResponse:response];
+        if (original) {
+            original(slf, selector, connection, response);
+        }
     };
     
-    [self replaceImplementationOfSelector:selector withSelector:swizzledSelector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock undefinedBlock:undefinedBlock];
+    original = [self replaceImplementationOfSelector:selector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock];
 }
 
 + (void)injectDidReceiveDataIntoDelegateClass:(Class)cls;
 {
     SEL selector = @selector(connection:didReceiveData:);
-    SEL swizzledSelector = [self swizzledSelectorForSelector:selector];
     
     Protocol *protocol = @protocol(NSURLConnectionDataDelegate);
     if (!protocol) {
@@ -301,23 +269,21 @@
     struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, NO, YES);
     
     typedef void (^NSURLConnectionDidReceiveDataBlock)(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSData *data);
-    
-    NSURLConnectionDidReceiveDataBlock undefinedBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSData *data) {
-        [[PDNetworkDomainController defaultInstance] connection:connection didReceiveData:data];
-    };
-    
+    __block void (*original)(id, SEL, NSURLConnection *, NSData *) = NULL;
+
     NSURLConnectionDidReceiveDataBlock implementationBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSData *data) {
-        undefinedBlock(slf, connection, data);
-        objc_msgSend(slf, swizzledSelector, connection, data);
+        [[PDNetworkDomainController defaultInstance] connection:connection didReceiveData:data];
+        if (original) {
+            original(slf, selector, connection, data);
+        }
     };
     
-    [self replaceImplementationOfSelector:selector withSelector:swizzledSelector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock undefinedBlock:undefinedBlock];
+    original = [self replaceImplementationOfSelector:selector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock];
 }
 
 + (void)injectDidFinishLoadingIntoDelegateClass:(Class)cls;
 {
     SEL selector = @selector(connectionDidFinishLoading:);
-    SEL swizzledSelector = [self swizzledSelectorForSelector:selector];
     
     Protocol *protocol = @protocol(NSURLConnectionDataDelegate);
     if (!protocol) {
@@ -327,39 +293,36 @@
     struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, NO, YES);
     
     typedef void (^NSURLConnectionDidFinishLoadingBlock)(id <NSURLConnectionDelegate> slf, NSURLConnection *connection);
-    
-    NSURLConnectionDidFinishLoadingBlock undefinedBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection) {
-        [[PDNetworkDomainController defaultInstance] connectionDidFinishLoading:connection];
-    };
-    
+    __block void (*original)(id, SEL, NSURLConnection *) = NULL;
+
     NSURLConnectionDidFinishLoadingBlock implementationBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection) {
-        undefinedBlock(slf, connection);
-        objc_msgSend(slf, swizzledSelector, connection);
+        [[PDNetworkDomainController defaultInstance] connectionDidFinishLoading:connection];
+        if (original) {
+            original(slf, selector, connection);
+        }
     };
     
-    [self replaceImplementationOfSelector:selector withSelector:swizzledSelector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock undefinedBlock:undefinedBlock];
+    original = [self replaceImplementationOfSelector:selector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock];
 }
 
 + (void)injectDidFailWithErrorIntoDelegateClass:(Class)cls;
 {
     SEL selector = @selector(connection:didFailWithError:);
-    SEL swizzledSelector = [self swizzledSelectorForSelector:selector];
     
     Protocol *protocol = @protocol(NSURLConnectionDelegate);
     struct objc_method_description methodDescription = protocol_getMethodDescription(protocol, selector, NO, YES);
     
     typedef void (^NSURLConnectionDidFailWithErrorBlock)(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSError *error);
-    
-    NSURLConnectionDidFailWithErrorBlock undefinedBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSError *error) {
-        [[PDNetworkDomainController defaultInstance] connection:connection didFailWithError:error];
-    };
-    
+    __block void (*original)(id, SEL, NSURLConnection *, NSError *) = NULL;
+
     NSURLConnectionDidFailWithErrorBlock implementationBlock = ^(id <NSURLConnectionDelegate> slf, NSURLConnection *connection, NSError *error) {
-        undefinedBlock(slf, connection, error);
-        objc_msgSend(slf, swizzledSelector, connection, error);
+        [[PDNetworkDomainController defaultInstance] connection:connection didFailWithError:error];
+        if (original) {
+            original(slf, selector, connection, error);
+        }
     };
     
-    [self replaceImplementationOfSelector:selector withSelector:swizzledSelector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock undefinedBlock:undefinedBlock];
+    original = [self replaceImplementationOfSelector:selector forClass:cls withMethodDescription:methodDescription implementationBlock:implementationBlock];
 }
 
 #pragma mark - Initialization
