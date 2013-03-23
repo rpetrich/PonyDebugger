@@ -741,8 +741,12 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
         }
     }
     
-    if (!stringValue && [value isKindOfClass:[NSNumber class]]) {
-        stringValue = [(NSNumber *)value stringValue];
+    if (!stringValue) {
+        if ([value isKindOfClass:[NSNumber class]]) {
+            stringValue = [(NSNumber *)value stringValue];
+        } else if ([value isKindOfClass:[NSString class]]) {
+            stringValue = value;
+        }
     }
     
     return stringValue;
