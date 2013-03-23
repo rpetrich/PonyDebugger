@@ -46,6 +46,18 @@ void _PDLogObjectsImpl(NSString *severity, NSArray *arguments)
 
 @end
 
+@interface NSObject (PDDebugger)
+@property (nonatomic, readonly) NSString *pointer;
+@end
+
+@implementation NSObject (PDDebugger)
+
+- (NSString *)pointer
+{
+    return [NSString stringWithFormat:@"%p", self];
+}
+
+@end
 
 @implementation PDDebugger {
     NSString *_bonjourServiceName;
@@ -395,7 +407,7 @@ void _PDLogObjectsImpl(NSString *severity, NSArray *arguments)
     [self _addController:[PDInspectorDomainController defaultInstance]];
     
     // Choosing frame, alpha, and hidden as the default key paths to display
-    [[PDDOMDomainController defaultInstance] setViewKeyPathsToDisplay:@[@"frame", @"alpha", @"hidden"]];
+    [[PDDOMDomainController defaultInstance] setViewKeyPathsToDisplay:@[@"pointer", @"frame", @"alpha", @"hidden", @"clipsToBounds", @"userInteractionEnabled"]];
     
     [PDDOMDomainController startMonitoringUIViewChanges];
 }
