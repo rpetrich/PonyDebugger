@@ -22,4 +22,6 @@
 - (NSString *)registerAndGetKeyForObject:(id)object;
 - (void)clearAllObjectReferences;
 
+- (void)inspectNodeWithId:(NSNumber *)nodeId;
+
 @end

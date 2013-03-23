@@ -11,6 +11,7 @@
 
 #import "PDRuntimeDomainController.h"
 #import "PDRuntimeTypes.h"
+#import "PDDOMDomainController.h"
 
 #import "NSObject+PDRuntimePropertyDescriptor.h"
 #import "NSManagedObject+PDRuntimePropertyDescriptor.h"
@@ -46,6 +47,7 @@
 @implementation PDRuntimeDomainController {
     JSGlobalContextRef context;
     JSStringRef underscorePropertyName;
+    size_t maxInspectedDepth;
 }
 
 @dynamic domain;
@@ -207,6 +209,22 @@ static inline id NSObjectFromJSValue(JSContextRef context, JSValueRef value) {
 {
     [self.objectReferences removeAllObjects];
     [self.objectGroups removeAllObjects];
+}
+
+- (void)inspectNodeWithId:(NSNumber *)nodeId;
+{
+    id object = [[PDDOMDomainController defaultInstance] objectForNodeId:nodeId];
+    size_t i = 0;
+    while (object || i < maxInspectedDepth) {
+        NSString *expression = object ? [NSString stringWithFormat:@"$%zd = new Instance(%p)", i, object] : [NSString stringWithFormat:@"delete $%zd", i];
+        JSStringRef jsExpression = JSStringCreateWithCFString((__bridge CFStringRef)expression);
+        JSEvaluateScript(context, jsExpression, NULL, NULL, 0, NULL);
+        JSStringRelease(jsExpression);
+        object = [object isKindOfClass:[UIView class]] ? [object superview] : nil;
+        i++;
+        if (maxInspectedDepth < i)
+            maxInspectedDepth = i;
+    }
 }
 
 #pragma mark - Private Methods

@@ -698,6 +698,11 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
     return textNode;
 }
 
+- (id)objectForNodeId:(NSNumber *)nodeId;
+{
+    return [self.objectsForNodeIds objectForKey:nodeId];
+}
+
 #pragma mark - Attribute Generation
 
 - (NSArray *)attributesArrayForObject:(id)object;

@@ -26,6 +26,8 @@
 // ex @[@"frame", @"bounds", @"alpha", @"hidden"]
 @property (nonatomic, strong) NSArray *viewKeyPathsToDisplay;
 
+- (id)objectForNodeId:(NSNumber *)nodeId;
+
 // These should only be used by the swizzled UIView observing methods
 - (void)removeView:(UIView *)view;
 - (void)addView:(UIView *)view;

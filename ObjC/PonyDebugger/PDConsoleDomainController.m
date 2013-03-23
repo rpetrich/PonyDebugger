@@ -52,6 +52,11 @@
     callback(nil);
 }
 
+- (void)domain:(PDConsoleDomain *)domain addInspectedNodeWithNodeId:(NSNumber *)nodeId callback:(void (^)(id error))callback
+{
+    [[PDRuntimeDomainController defaultInstance] inspectNodeWithId:nodeId];
+    callback(nil);
+}
 
 #pragma mark - Public Methods
 
