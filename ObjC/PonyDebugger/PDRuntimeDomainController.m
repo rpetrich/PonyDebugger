@@ -169,10 +169,24 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
             remoteValueObject.type = @"boolean";
             remoteValueObject.value = JSValueToBoolean(context, value) ? (__bridge id)kCFBooleanTrue : (__bridge id)kCFBooleanFalse;
             break;
-        case kJSTypeNumber:
+        case kJSTypeNumber: {
             remoteValueObject.type = @"number";
-            remoteValueObject.value = [NSNumber numberWithDouble:JSValueToNumber(context, value, NULL)];
+            double doubleValue = JSValueToNumber(context, value, NULL);
+            switch (fpclassify(doubleValue)) {
+                case FP_NAN:
+                    remoteValueObject.value = @"NaN";
+                    break;
+                case FP_INFINITE:
+                    remoteValueObject.value = isinf(doubleValue) < 0 ? @"-Infinity" : @"Infinity";
+                    break;
+                case FP_ZERO:
+                case FP_SUBNORMAL:
+                case FP_NORMAL:
+                    remoteValueObject.value = [NSNumber numberWithDouble:doubleValue];
+                    break;
+            }
             break;
+        }
         case kJSTypeString: {
             remoteValueObject.type = @"string";
             JSStringRef string = JSValueToStringCopy(context, value, NULL);
