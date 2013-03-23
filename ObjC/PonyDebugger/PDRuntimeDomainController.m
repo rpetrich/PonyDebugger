@@ -19,6 +19,10 @@
 #import "NSOrderedSet+PDRuntimePropertyDescriptor.h"
 #import "NSDictionary+PDRuntimePropertyDescriptor.h"
 
+#import <JavaScriptCore/JSContextRef.h>
+#import <JavaScriptCore/JSStringRef.h>
+#import <JavaScriptCore/JSStringRefCF.h>
+#import <JavaScriptCore/JSValueRef.h>
 
 @interface PDRuntimeDomainController () <PDRuntimeCommandDelegate>
 
@@ -36,7 +40,9 @@
 @end
 
 
-@implementation PDRuntimeDomainController
+@implementation PDRuntimeDomainController {
+    JSGlobalContextRef context;
+}
 
 @dynamic domain;
 
@@ -79,12 +85,15 @@
     
     self.objectReferences = [[NSMutableDictionary alloc] init];
     self.objectGroups = [[NSMutableDictionary alloc] init];
+
+    context = JSGlobalContextCreate(NULL);
     
     return self;
 }
 
 - (void)dealloc;
 {
+    JSGlobalContextRelease(context);
     self.objectReferences = nil;
     self.objectGroups = nil;
 }
@@ -118,6 +127,48 @@
     callback(nil);
     
     [self _releaseObjectGroup:objectGroup];
+}
+
+static inline id NSObjectFromJSValue(JSContextRef context, JSValueRef value) {
+    if (!value)
+        return nil;
+    switch (JSValueGetType(context, value)) {
+        case kJSTypeUndefined:
+            return nil;
+        case kJSTypeNull:
+            return [NSNull null];
+        case kJSTypeBoolean:
+            return JSValueToBoolean(context, value) ? (__bridge id)kCFBooleanTrue : (__bridge id)kCFBooleanFalse;
+        case kJSTypeNumber:
+            return [NSNumber numberWithDouble:JSValueToNumber(context, value, NULL)];
+        case kJSTypeString:
+        case kJSTypeObject: {
+            JSStringRef string = JSValueToStringCopy(context, value, NULL);
+            NSString *result = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, string);
+            JSStringRelease(string);
+            return result;
+        }
+    }
+}
+
+- (void)domain:(PDRuntimeDomain *)domain evaluateWithExpression:(NSString *)expression objectGroup:(NSString *)objectGroup includeCommandLineAPI:(NSNumber *)includeCommandLineAPI doNotPauseOnExceptionsAndMuteConsole:(NSNumber *)doNotPauseOnExceptionsAndMuteConsole contextId:(NSNumber *)contextId returnByValue:(NSNumber *)returnByValue callback:(void (^)(PDRuntimeRemoteObject *result, NSNumber *wasThrown, id error))callback
+{
+    if (![objectGroup isEqualToString:@"completion"]) {
+        JSStringRef jsExpression = JSStringCreateWithCFString((__bridge CFStringRef)expression);
+        JSValueRef exception = NULL;
+        JSValueRef value = JSEvaluateScript(context, jsExpression, NULL, NULL, 0, &exception);
+        JSStringRelease(jsExpression);
+        if (value) {
+            NSString *result = NSObjectFromJSValue(context, value);
+            callback([NSObject PD_remoteObjectRepresentationForObject:result], nil, nil);
+            return;
+        }
+        if (exception) {
+            NSString *result = NSObjectFromJSValue(context, exception);
+            callback([NSObject PD_remoteObjectRepresentationForObject:result], (__bridge id)kCFBooleanTrue, nil);
+        }
+    }
+    callback(nil, nil, nil);
 }
 
 #pragma mark - Public Methods
