@@ -179,7 +179,14 @@ void _PDLogObjectsImpl(NSString *severity, NSArray *arguments)
             [response setObject:[NSNull null] forKey:@"error"];
         }
 
-        NSData *data = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
+        NSData *data;
+        @try {
+            data = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
+        }
+        @catch (NSException *e) {
+            NSLog(@"PonyDebugger: %@ when serializing response %@", e, response);
+            return;
+        }
         NSString *encodedData = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 
         [webSocket send:encodedData];
@@ -283,7 +290,14 @@ void _PDLogObjectsImpl(NSString *severity, NSArray *arguments)
 {
     NSDictionary *obj = [[NSDictionary alloc] initWithObjectsAndKeys:methodName, @"method", [params PD_JSONObject], @"params", nil];
 
-    NSData *data = [NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
+    NSData *data;
+    @try {
+        data = [NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
+    }
+    @catch (NSException *e) {
+        NSLog(@"PonyDebugger: %@ when serializing event %@", e, obj);
+        return;
+    }
     NSString *encodedData = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     
     if (_socket.readyState == SR_OPEN) {
