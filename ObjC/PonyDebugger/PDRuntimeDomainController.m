@@ -91,7 +91,7 @@
     self.objectGroups = [[NSMutableDictionary alloc] init];
 
     context = JSGlobalContextCreate(NULL);
-    CYSetupContext(context);
+    CydgetSetupContext(context);
     
     return self;
 }
