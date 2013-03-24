@@ -18,6 +18,7 @@
 + (PDRuntimeDomainController *)defaultInstance;
 
 @property (nonatomic, strong) PDRuntimeDomain *domain;
+@property (nonatomic, strong) NSString *debugScriptPath;
 
 - (NSString *)registerAndGetKeyForObject:(id)object;
 - (void)clearAllObjectReferences;

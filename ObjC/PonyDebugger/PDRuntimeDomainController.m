@@ -51,17 +51,26 @@
     JSGlobalContextRef context;
     JSStringRef underscorePropertyName;
     JSStringRef lengthPropertyName;
-    JSStringRef toCYONPropertyName;
-    JSStringRef __hidesPropertyPropertyName;
+    JSStringRef UTF8StringPropertyName;
+    JSStringRef __prettyPrintableOfPropertyPropertyName;
+    JSStringRef __prettyPrintablePropertyName;
     size_t maxInspectedDepth;
     JSValueRef DateRef;
     JSValueRef RegExpRef;
+    bool hasRunDebugScripts;
 }
 
 @dynamic domain;
 
 @synthesize objectReferences = _objectReferences;
 @synthesize objectGroups = _objectGroups;
+@synthesize debugScriptPath = _debugScriptPath;
+
+- (void)setDebugScriptPath:(NSString *)newValue
+{
+    _debugScriptPath = newValue;
+    hasRunDebugScripts = false;
+}
 
 #pragma mark - Statics
 
@@ -118,8 +127,9 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
     CydgetSetupContext(context);
     underscorePropertyName = JSStringCreateWithUTF8CString("_");
     lengthPropertyName = JSStringCreateWithUTF8CString("length");
-    toCYONPropertyName = JSStringCreateWithUTF8CString("toCYON");
-    __hidesPropertyPropertyName = JSStringCreateWithUTF8CString("__hidesProperty");
+    UTF8StringPropertyName = JSStringCreateWithUTF8CString("UTF8String");
+    __prettyPrintableOfPropertyPropertyName = JSStringCreateWithUTF8CString("__prettyPrintableOfProperty");
+    __prettyPrintablePropertyName = JSStringCreateWithUTF8CString("__prettyPrintable");
     JSObjectRef global = JSContextGetGlobalObject(context);
 
     JSStringRef DateString = JSStringCreateWithUTF8CString("Date");
@@ -141,12 +151,44 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
     JSValueUnprotect(context, DateRef);
     JSStringRelease(underscorePropertyName);
     JSStringRelease(lengthPropertyName);
-    JSStringRelease(toCYONPropertyName);
-    JSStringRelease(__hidesPropertyPropertyName);
+    JSStringRelease(UTF8StringPropertyName);
+    JSStringRelease(__prettyPrintableOfPropertyPropertyName);
+    JSStringRelease(__prettyPrintablePropertyName);
     JSGlobalContextRelease(context);
     self.objectReferences = nil;
     CFRelease(self.jsValueReferences);
     self.objectGroups = nil;
+}
+
+- (NSString *)prettyPrintableStringValueForObject:(JSObjectRef)object exception:(JSValueRef *)exception;
+{
+    JSValueRef prettyPrintableValue = JSObjectGetProperty(context, object, __prettyPrintablePropertyName, NULL);
+    if (prettyPrintableValue) {
+        JSObjectRef prettyPrintable = JSValueToObject(context, prettyPrintableValue, NULL);
+        if (prettyPrintable) {
+            JSValueRef localException = NULL;
+            JSValueRef description = JSObjectCallAsFunction(context, prettyPrintable, object, 0, NULL, &localException);
+            if (localException) {
+                if (exception) {
+                    *exception = localException;
+                }
+                return nil;
+            }
+            JSStringRef string = JSValueToStringCopy(context, description, &localException);
+            if (localException) {
+                if (exception) {
+                    *exception = localException;
+                }
+                return nil;
+            }
+            if (string) {
+                NSString *result = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, string);
+                JSStringRelease(string);
+                return result;
+            }
+        }
+    }
+    return nil;
 }
 
 #pragma mark - PDRuntimeCommandDelegate
@@ -204,23 +246,10 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
                 remoteValueObject.subtype = @"regexp";
             } else {
                 JSObjectRef object = JSValueToObject(context, value, NULL);
-                JSValueRef toCYON = JSObjectGetProperty(context, object, toCYONPropertyName, NULL);
-                if (toCYON) {
-                    JSObjectRef toCYONObject = JSValueToObject(context, toCYON, NULL);
-                    if (toCYONObject) {
-                        JSValueRef description = JSObjectCallAsFunction(context, toCYONObject, object, 0, NULL, NULL);
-                        if (description) {
-                            JSStringRef string = JSValueToStringCopy(context, description, NULL);
-                            if (string) {
-                                remoteValueObject.objectDescription = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, string);
-                                JSStringRelease(string);
-                            }
-                        }
-                    }
+                if (JSObjectHasProperty(context, object, UTF8StringPropertyName)) {
+                    remoteValueObject.type = @"string";
                 }
-                /*if (JSObjectHasProperty(context, object, lengthPropertyName)) {
-                    remoteValueObject.subtype = @"array";
-                }*/
+                remoteValueObject.objectDescription = [self prettyPrintableStringValueForObject:(JSObjectRef)value exception:NULL];
                 NSString *key = [PDRuntimeDomainController _generateUUID];
                 remoteValueObject.objectId = key;
                 CFDictionarySetValue(self.jsValueReferences, (__bridge const void *)key, object);
@@ -247,13 +276,33 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
         JSObjectRef object = JSValueToObject(context, value, NULL);
         JSValueRef lengthValue = JSObjectGetProperty(context, object, lengthPropertyName, NULL);
         double length;
+        JSValueRef prettyPrintableOfPropertyValue = JSObjectGetProperty(context, object, __prettyPrintableOfPropertyPropertyName, NULL);
+        JSObjectRef prettyPrintableOfProperty = prettyPrintableOfPropertyValue ? JSValueToObject(context, prettyPrintableOfPropertyValue, NULL) : 0;
         if (lengthValue && !isnan(length = JSValueToNumber(context, lengthValue, NULL))) {
             unsigned intLength = (unsigned)length;
             for (unsigned i = 0; i < intLength; i++) {
-                JSValueRef propertyValue = JSObjectGetPropertyAtIndex(context, object, i, NULL);
+                NSString *name = [[NSNumber numberWithUnsignedInt:i] description];
+                JSValueRef value;
+                if (prettyPrintableOfProperty) {
+                    JSStringRef propertyName = JSStringCreateWithCFString((__bridge CFStringRef)name);
+                    const JSValueRef arguments[] = { JSValueMakeString(context, propertyName) };
+                    JSValueRef exception = NULL;
+                    value = JSObjectCallAsFunction(context, prettyPrintableOfProperty, object, 1, arguments, &exception);
+                    JSStringRelease(propertyName);
+                    if (exception) {
+                        // Exception means we don't want this property to show up
+                        continue;
+                    }
+                } else {
+                    value = JSObjectGetPropertyAtIndex(context, object, i, NULL);
+                }
+                PDRuntimeRemoteObject *remoteObject = [self remoteObjectForJSValue:value];
+                if (!remoteObject) {
+                    continue;
+                }
                 PDRuntimePropertyDescriptor *descriptor = [[PDRuntimePropertyDescriptor alloc] init];
-                descriptor.name = [[NSNumber numberWithUnsignedInt:i] description];
-                descriptor.value = [self remoteObjectForJSValue:propertyValue];
+                descriptor.name = name;
+                descriptor.value = remoteObject;
                 descriptor.writable = [NSNumber numberWithBool:NO];
                 descriptor.configurable = [NSNumber numberWithBool:NO];
                 descriptor.enumerable = [NSNumber numberWithBool:YES];
@@ -265,18 +314,31 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
             size_t count = JSPropertyNameArrayGetCount(properties);
             for (size_t i = 0; i < count; i++) {
                 JSStringRef propertyName = JSPropertyNameArrayGetNameAtIndex(properties, i);
-                //NSString *name = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, propertyName);
-                //NSLog(@"PonyDebugger: Logging %@", name);
-                if ([name hasPrefix:@"__"] || [name hasSuffix:@"_"]) {
+                NSString *name = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, propertyName);
+                NSLog(@"Getting property value for %@", name);
+                JSValueRef value;
+                if (prettyPrintableOfProperty) {
+                    const JSValueRef arguments[] = { JSValueMakeString(context, propertyName) };
+                    JSValueRef exception = NULL;
+                    value = JSObjectCallAsFunction(context, prettyPrintableOfProperty, object, 1, arguments, &exception);
+                    if (exception) {
+                        // Exception means we don't want this property to show up
+                        continue;
+                    }
+                } else {
+                    value = JSObjectGetProperty(context, object, propertyName, NULL);
+                }
+                PDRuntimeRemoteObject *remoteObject = [self remoteObjectForJSValue:value];
+                if (!remoteObject) {
                     continue;
                 }
                 PDRuntimePropertyDescriptor *descriptor = [[PDRuntimePropertyDescriptor alloc] init];
                 descriptor.name = name;
-                descriptor.value = [self remoteObjectForJSValue:JSObjectGetProperty(context, object, propertyName, NULL)];
+                descriptor.value = remoteObject;
+                descriptor.wasThrown = [NSNumber numberWithBool:NO];
                 descriptor.writable = [NSNumber numberWithBool:NO];
                 descriptor.configurable = [NSNumber numberWithBool:NO];
                 descriptor.enumerable = [NSNumber numberWithBool:YES];
-                descriptor.wasThrown = [NSNumber numberWithBool:NO];
                 [result addObject:descriptor];
             }
             JSPropertyNameArrayRelease(properties);
@@ -339,23 +401,46 @@ static inline id NSObjectFromJSValue(JSContextRef context, JSValueRef value) {
     }
 }
 
+static JSStringRef CreateJSStringForCycriptExpression(NSString *expression)
+{
+    // Convert from Cycript to JavaScript
+    size_t length = [expression length];
+    unichar *buffer = malloc(length * sizeof(unichar));
+    [expression getCharacters:buffer range:NSMakeRange(0, length)];
+    const uint16_t *characters = buffer;
+    apr_pool_t *pool = NULL;
+    apr_pool_create(&pool, NULL);
+    CydgetPoolParse(pool, &characters, &length);
+    JSStringRef jsExpression = JSStringCreateWithCharacters(characters, length);
+    free(buffer);
+    apr_pool_destroy(pool);
+    return jsExpression;
+}
+
 - (void)domain:(PDRuntimeDomain *)domain evaluateWithExpression:(NSString *)expression objectGroup:(NSString *)objectGroup includeCommandLineAPI:(NSNumber *)includeCommandLineAPI doNotPauseOnExceptionsAndMuteConsole:(NSNumber *)doNotPauseOnExceptionsAndMuteConsole contextId:(NSNumber *)contextId returnByValue:(NSNumber *)returnByValue callback:(void (^)(PDRuntimeRemoteObject *result, NSNumber *wasThrown, id error))callback
 {
     if (![objectGroup isEqualToString:@"completion"]) {
-        // Convert from Cycript to JavaScript
-        size_t length = [expression length];
-        unichar *buffer = malloc(length * sizeof(unichar));
-        [expression getCharacters:buffer range:NSMakeRange(0, length)];
-        const uint16_t *characters = buffer;
-        apr_pool_t *pool = NULL;
-        apr_pool_create(&pool, NULL);
-        CydgetPoolParse(pool, &characters, &length);
-        JSStringRef jsExpression = JSStringCreateWithCharacters(characters, length);
-        free(buffer);
-        apr_pool_destroy(pool);
-
-        //NSLog(@"Cycript converted %@ into %@", expression, (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, jsExpression));
-
+        if (!hasRunDebugScripts && _debugScriptPath) {
+            hasRunDebugScripts = YES;
+            for (NSString *subpath in [[[NSFileManager alloc] init] contentsOfDirectoryAtPath:_debugScriptPath error:NULL]) {
+                NSString *pathExtension = [[subpath pathExtension] lowercaseString];
+                BOOL isCycript;
+                if ([pathExtension isEqualToString:@"js"]) {
+                    isCycript = NO;
+                } else if ([pathExtension isEqualToString:@"cy"]) {
+                    isCycript = YES;
+                } else {
+                    continue;
+                }
+                NSString *input = [NSString stringWithContentsOfFile:[_debugScriptPath stringByAppendingPathComponent:subpath] encoding:NSUTF8StringEncoding error:nil];
+                if (!input)
+                    continue;
+                JSStringRef expression = isCycript ? CreateJSStringForCycriptExpression(input) : JSStringCreateWithCFString((__bridge CFStringRef)input);
+                JSEvaluateScript(context, expression, NULL, NULL, 0, NULL);
+                JSStringRelease(expression);
+            }
+        }
+        JSStringRef jsExpression = CreateJSStringForCycriptExpression(expression);
         JSValueRef exception = NULL;
         JSValueRef value = JSEvaluateScript(context, jsExpression, NULL, NULL, 0, &exception);
         JSStringRelease(jsExpression);
