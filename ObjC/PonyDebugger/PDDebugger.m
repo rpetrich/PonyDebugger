@@ -57,6 +57,70 @@ void _PDLogObjectsImpl(NSString *severity, NSArray *arguments)
     return [NSString stringWithFormat:@"%p", self];
 }
 
++ (NSDictionary *)metaMethods
+{
+    NSMutableDictionary *dictionary = [[NSMutableDictionary alloc] init];
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(object_getClass(self), &count);
+    if (methods) {
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *key = [NSString stringWithUTF8String:sel_getName(method_getName(methods[i]))];
+            NSValue *value = [NSValue valueWithBytes:&methods[i] objCType:@encode(Method)];
+            [dictionary setObject:value forKey:key];
+        }
+        free(methods);
+    }
+    return dictionary;
+}
+
++ (NSDictionary *)methods
+{
+    NSMutableDictionary *dictionary = [[NSMutableDictionary alloc] init];
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(self, &count);
+    if (methods) {
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *key = [NSString stringWithUTF8String:sel_getName(method_getName(methods[i]))];
+            NSValue *value = [NSValue valueWithBytes:&methods[i] objCType:@encode(Method)];
+            [dictionary setObject:value forKey:key];
+        }
+        free(methods);
+    }
+    return dictionary;
+}
+
++ (NSDictionary *)protocols
+{
+    NSMutableDictionary *dictionary = [[NSMutableDictionary alloc] init];
+    unsigned int count = 0;
+    Protocol *__unsafe_unretained *protocols = class_copyProtocolList(self, &count);
+    if (protocols) {
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *key = [NSString stringWithUTF8String:protocol_getName(protocols[i])];
+            NSValue *value = [NSValue valueWithBytes:&protocols[i] objCType:@encode(Protocol *)];
+            [dictionary setObject:value forKey:key];
+        }
+        free(protocols);
+    }
+    return dictionary;
+}
+
++ (NSDictionary *)properties
+{
+    NSMutableDictionary *dictionary = [[NSMutableDictionary alloc] init];
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList(self, &count);
+    if (properties) {
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *key = [NSString stringWithUTF8String:property_getName(properties[i])];
+            NSValue *value = [NSValue valueWithBytes:&properties[i] objCType:@encode(objc_property_t)];
+            [dictionary setObject:value forKey:key];
+        }
+        free(properties);
+    }
+    return dictionary;
+}
+
 @end
 
 @implementation PDDebugger {
