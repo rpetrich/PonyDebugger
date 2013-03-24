@@ -315,7 +315,6 @@ static void JSValueReleaseCallback(CFAllocatorRef allocator, const void *value)
             for (size_t i = 0; i < count; i++) {
                 JSStringRef propertyName = JSPropertyNameArrayGetNameAtIndex(properties, i);
                 NSString *name = (__bridge_transfer NSString *)JSStringCopyCFString(kCFAllocatorDefault, propertyName);
-                NSLog(@"Getting property value for %@", name);
                 JSValueRef value;
                 if (prettyPrintableOfProperty) {
                     const JSValueRef arguments[] = { JSValueMakeString(context, propertyName) };
