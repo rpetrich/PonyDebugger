@@ -103,11 +103,17 @@
 
 + (void *)replaceImplementationOfSelector:(SEL)selector forClass:(Class)cls withMethodDescription:(struct objc_method_description)methodDescription implementationBlock:(id)implementationBlock;
 {
-    if ([self instanceRespondsButDoesNotImplementSelector:selector class:cls]) {
+    if (![cls instancesRespondToSelector:selector]) {
+#ifdef __IPHONE_6_0
+        IMP implementation = imp_implementationWithBlock((id)implementationBlock);
+#else
+        IMP implementation = imp_implementationWithBlock((__bridge void *)implementationBlock);
+#endif
+        class_addMethod(cls, selector, implementation, methodDescription.types);
         return NULL;
     }
 
-    if (![cls instancesRespondToSelector:selector]) {
+    if ([self instanceRespondsButDoesNotImplementSelector:selector class:cls]) {
         return NULL;
     }
 
