@@ -472,6 +472,8 @@
 
 - (void)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)request redirectResponse:(NSURLResponse *)response;
 {
+    if (![connection isKindOfClass:[NSURLConnection class]])
+        return;
     [self performBlock:^{
         [self setRequest:request forConnection:connection];
         PDNetworkRequest *networkRequest = [PDNetworkRequest networkRequestWithURLRequest:request];
@@ -490,6 +492,8 @@
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response;
 {
+    if (![connection isKindOfClass:[NSURLConnection class]])
+        return;
     [self performBlock:^{
 
         // If the request wasn't generated yet, then willSendRequest was not called. This appears to be an inconsistency in documentation
@@ -538,6 +542,8 @@
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data;
 {
+    if (![connection isKindOfClass:[NSURLConnection class]])
+        return;
     // Just to be safe since we're doing this async
     data = [data copy];
     [self performBlock:^{
@@ -555,6 +561,8 @@
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection;
 {
+    if (![connection isKindOfClass:[NSURLConnection class]])
+        return;
     [self performBlock:^{
         NSURLResponse *response = [self responseForConnection:connection];
         NSString *requestID = [self requestIDForConnection:connection];
@@ -576,6 +584,8 @@
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error;
 {
+    if (![connection isKindOfClass:[NSURLConnection class]])
+        return;
     [self performBlock:^{
         [self.domain loadingFailedWithRequestId:[self requestIDForConnection:connection]
                                       timestamp:[NSDate PD_timestamp]
