@@ -15,6 +15,11 @@
 #import "PDInspectorDomainController.h"
 #import "PDRuntimeTypes.h"
 
+#import <CaptainHook/CaptainHook.h>
+@interface UIWindow (Private)
++ (NSArray *)allWindowsIncludingInternalWindows:(BOOL)includeInternalWindows onlyVisibleWindows:(BOOL)onlyIncludeVisibleWindows;
+@end
+
 // Constants defined in the DOM Level 2 Core: http://www.w3.org/TR/DOM-Level-2-Core/core.html#ID-1950641247
 static const int kPDDOMNodeTypeElement = 1;
 static const int kPDDOMNodeTypeAttribute = 2;
@@ -469,6 +474,12 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
     }
 }
 
+- (NSArray *)allWindows
+{
+    //return [UIApplication sharedApplication].windows;
+    return [UIWindow allWindowsIncludingInternalWindows:YES onlyVisibleWindows:NO];
+}
+
 - (void)addView:(UIView *)view;
 {
     // Bail early if we're ignoring this view or if the document hasn't been requested yet
@@ -505,7 +516,7 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
         
         // Look at the other windows to find where to place this window
         NSNumber *previousNodeId = nil;
-        NSArray *windows = [[UIApplication sharedApplication] windows];
+        NSArray *windows = [self allWindows];
         NSUInteger indexOfWindow = [windows indexOfObject:view];
         
         if (indexOfWindow > 0) {
@@ -564,7 +575,7 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
 
 - (void)stopTrackingAllViews;
 {
-    for (UIWindow *window in [[UIApplication sharedApplication] windows]) {
+    for (UIWindow *window in [self allWindows]) {
         [self stopTrackingView:window];
     }
 }
@@ -625,7 +636,7 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
 
 - (NSArray *)windowNodes;
 {
-    NSArray *windows = [[UIApplication sharedApplication] windows];
+    NSArray *windows = [self allWindows];
     NSMutableArray *windowNodes = [NSMutableArray arrayWithCapacity:[windows count]];
     
     for (id window in windows) {
