@@ -99,50 +99,6 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
     return defaultInstance;
 }
 
-+ (void)startMonitoringUIViewChanges;
-{
-    // Swizzle UIView add/remove methods to monitor changes in the view hierarchy
-    // Only do it once to avoid swapping back if this method is called again
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        
-        Method original, swizzle;
-        Class viewClass = [UIView class];
-        
-        original = class_getInstanceMethod(viewClass, @selector(addSubview:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_addSubview:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(bringSubviewToFront:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_bringSubviewToFront:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(sendSubviewToBack:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_sendSubviewToBack:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(removeFromSuperview));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_removeFromSuperview));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(insertSubview:atIndex:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_insertSubview:atIndex:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(insertSubview:aboveSubview:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_insertSubview:aboveSubview:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(insertSubview:belowSubview:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_insertSubview:belowSubview:));
-        method_exchangeImplementations(original, swizzle);
-        
-        original = class_getInstanceMethod(viewClass, @selector(exchangeSubviewAtIndex:withSubviewAtIndex:));
-        swizzle = class_getInstanceMethod(viewClass, @selector(pd_swizzled_exchangeSubviewAtIndex:withSubviewAtIndex:));
-        method_exchangeImplementations(original, swizzle);
-    });
-}
-
 + (Class)domainClass;
 {
     return [PDDOMDomain class];
@@ -783,69 +739,97 @@ static NSString *const kPDDOMAttributeParsingRegex = @"[\"'](.*)[\"']";
     return encoding;
 }
 
-@end
-
-@implementation UIView (Hackery)
+#pragma mark Hooks
 
 // There is a different set of view add/remove observation methods that could've been swizzled instead of the ones below.
 // Choosing the set below seems safer becuase the UIView implementations of the other methods are documented to be no-ops.
 // Custom UIView subclasses may override and not make calls to super for those methods, which would cause us to miss changes in the view hierarchy.
 
-- (void)pd_swizzled_addSubview:(UIView *)subview;
+CHDeclareClass(UIView);
+
+CHOptimizedMethod(1, self, void, UIView, addSubview, UIView *, subview)
 {
-    [[PDDOMDomainController defaultInstance] removeView:subview];
-    [self pd_swizzled_addSubview:subview];
-    [[PDDOMDomainController defaultInstance] addView:subview];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(1, UIView, addSubview, subview);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_bringSubviewToFront:(UIView *)view;
+CHOptimizedMethod(1, self, void, UIView, bringSubviewToFront, UIView *, subview)
 {
-    [[PDDOMDomainController  defaultInstance] removeView:view];
-    [self pd_swizzled_bringSubviewToFront:view];
-    [[PDDOMDomainController defaultInstance] addView:view];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(1, UIView, bringSubviewToFront, subview);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_sendSubviewToBack:(UIView *)view;
+CHOptimizedMethod(1, self, void, UIView, sendSubviewToBack, UIView *, subview)
 {
-    [[PDDOMDomainController  defaultInstance] removeView:view];
-    [self pd_swizzled_sendSubviewToBack:view];
-    [[PDDOMDomainController defaultInstance] addView:view];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(1, UIView, sendSubviewToBack, subview);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_removeFromSuperview;
+CHOptimizedMethod(0, self, void, UIView, removeFromSuperview)
 {
     [[PDDOMDomainController defaultInstance] removeView:self];
-    [self pd_swizzled_removeFromSuperview];
+    CHSuper(0, UIView, removeFromSuperview);
 }
 
-- (void)pd_swizzled_insertSubview:(UIView *)view atIndex:(NSInteger)index;
+CHOptimizedMethod(2, self, void, UIView, insertSubview, UIView *, subview, atIndex, NSInteger, index)
 {
-    [[PDDOMDomainController  defaultInstance] removeView:view];
-    [self pd_swizzled_insertSubview:view atIndex:index];
-    [[PDDOMDomainController defaultInstance] addView:view];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(2, UIView, insertSubview, subview, atIndex, index);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_insertSubview:(UIView *)view aboveSubview:(UIView *)siblingSubview;
+CHOptimizedMethod(2, self, void, UIView, insertSubview, UIView *, subview, aboveSubview, UIView *, siblingSubview)
 {
-    [[PDDOMDomainController  defaultInstance] removeView:view];
-    [self pd_swizzled_insertSubview:view aboveSubview:siblingSubview];
-    [[PDDOMDomainController defaultInstance] addView:view];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(2, UIView, insertSubview, subview, aboveSubview, siblingSubview);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_insertSubview:(UIView *)view belowSubview:(UIView *)siblingSubview;
+CHOptimizedMethod(2, self, void, UIView, insertSubview, UIView *, subview, belowSubview, UIView *, siblingSubview)
 {
-    [[PDDOMDomainController  defaultInstance] removeView:view];
-    [self pd_swizzled_insertSubview:view belowSubview:siblingSubview];
-    [[PDDOMDomainController defaultInstance] addView:view];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:subview];
+    CHSuper(2, UIView, insertSubview, subview, belowSubview, siblingSubview);
+    [controller addView:subview];
 }
 
-- (void)pd_swizzled_exchangeSubviewAtIndex:(NSInteger)index1 withSubviewAtIndex:(NSInteger)index2;
+CHOptimizedMethod(2, self, void, UIView, exchangeSubviewAtIndex, NSInteger, index1, withSubviewAtIndex, NSInteger, index2)
 {
-    [[PDDOMDomainController defaultInstance] removeView:[[self subviews] objectAtIndex:index1]];
-    [[PDDOMDomainController defaultInstance] removeView:[[self subviews] objectAtIndex:index2]];
-    [self pd_swizzled_exchangeSubviewAtIndex:index1 withSubviewAtIndex:index2];
-    [[PDDOMDomainController defaultInstance] addView:[[self subviews] objectAtIndex:index1]];
-    [[PDDOMDomainController defaultInstance] addView:[[self subviews] objectAtIndex:index2]];
+    NSArray *subviews = self.subviews;
+    UIView *view1 = [subviews objectAtIndex:index1];
+    UIView *view2 = [subviews objectAtIndex:index2];
+    PDDOMDomainController *controller = [PDDOMDomainController defaultInstance];
+    [controller removeView:view1];
+    [controller removeView:view2];
+    CHSuper(2, UIView, exchangeSubviewAtIndex, index1, withSubviewAtIndex, index2);
+    [controller addView:view1];
+    [controller addView:view2];
+}
+
++ (void)startMonitoringUIViewChanges;
+{
+    // Swizzle UIView add/remove methods to monitor changes in the view hierarchy
+    // Only do it once to avoid swapping back if this method is called again
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        CHLoadClass(UIView);
+        CHHook(1, UIView, addSubview);
+        CHHook(1, UIView, bringSubviewToFront);
+        CHHook(1, UIView, sendSubviewToBack);
+        CHHook(0, UIView, removeFromSuperview);
+        CHHook(2, UIView, insertSubview, atIndex);
+        CHHook(2, UIView, insertSubview, aboveSubview);
+        CHHook(2, UIView, insertSubview, belowSubview);
+        CHHook(2, UIView, exchangeSubviewAtIndex, withSubviewAtIndex);
+    });
 }
 
 @end
